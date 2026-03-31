@@ -14,6 +14,9 @@ from eth_typing.abi import (
 from eth_abi.decoding import (
     ContextFramesBytesIO,
 )
+from eth_abi.hooks import (
+    resolve_hooks as _resolve_hooks_impl,
+)
 from eth_abi.exceptions import (
     EncodingError,
 )
@@ -47,6 +50,45 @@ class ABIEncoder(BaseABICoder):
     """
     Wraps a registry to provide last-mile encoding functionality.
     """
+
+    def __init__(self, registry: ABIRegistry, *, is_packed: bool = False) -> None:
+        super().__init__(registry)
+        self._is_packed = is_packed
+
+    def resolve_hooks(
+        self, types: Iterable[TypeStr], args: Iterable[Any]
+    ) -> list[Any]:
+        """
+        Resolves callable hook values within ``args``, returning a new list
+        with each hook replaced by its return value.
+
+        A hook is any callable placed where a value is expected.  Before
+        encoding, the hook is called with an
+        :class:`~eth_abi.hooks.EncodingContext` object that reports the
+        absolute byte offset at which the value's encoded data will appear in
+        the final output, the ABI type string for that position, the encoded
+        byte size, and whether packed encoding is in use.
+
+        Hooks may be placed at primitive leaf positions at any depth of
+        nesting: directly in ``args``, inside tuple values, inside array
+        values, or any combination thereof.
+
+        :param types: A list or tuple of string representations of the ABI
+            types e.g. ``('uint256', 'bytes[]', '(int,int)')``
+        :param args: A list or tuple of python values, possibly containing
+            callable hooks.
+
+        :returns: A new list with all hooks replaced by their return values.
+            The resolved list can be passed directly to :meth:`encode`.
+        """
+        validate_list_like_param(types, "types")
+        validate_list_like_param(args, "args")
+
+        return list(
+            _resolve_hooks_impl(
+                self._registry, list(types), list(args), is_packed=self._is_packed
+            )
+        )
 
     def encode(self, types: Iterable[TypeStr], args: Iterable[Any]) -> bytes:
         """

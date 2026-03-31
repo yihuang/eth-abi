@@ -11,3 +11,4 @@ encode = default_codec.encode
 decode = default_codec.decode
 is_encodable = default_codec.is_encodable
 is_encodable_type = default_codec.is_encodable_type
+resolve_hooks = default_codec.resolve_hooks
