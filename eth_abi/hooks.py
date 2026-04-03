@@ -6,18 +6,20 @@ who need to discover the exact byte offsets of argument slots in
 ABI-encoded output without modifying the core encoder.
 """
 
-from typing import NamedTuple, Any
+from collections.abc import Iterable, Sequence
+from typing import Any, NamedTuple
 
 from eth_utils import (
     is_list_like,
 )
 
-from eth_abi import grammar
 from eth_abi.encoding import (
     BaseArrayEncoder,
+    BaseEncoder,
     DynamicArrayEncoder,
     TupleEncoder,
 )
+from eth_abi.registry import ABIRegistry
 
 
 class EncodingContext(NamedTuple):
@@ -37,7 +39,11 @@ class EncodingContext(NamedTuple):
     encoder: Any
 
 
-def resolve_hooks(registry, types, values):
+def resolve_hooks(
+    registry: ABIRegistry,
+    types: Iterable[str],
+    values: Iterable[Any],
+) -> list[Any]:
     """
     Resolve callable hook values within ``values``, returning a new list
     with each hook replaced by its return value.
@@ -63,13 +69,11 @@ def resolve_hooks(registry, types, values):
         The resolved list can be passed directly to
         :func:`~eth_abi.abi.encode` or :func:`~eth_abi.packed.encode_packed`.
     """
-    encoders = [registry.get_encoder(t) for t in types]
-    return _resolve_tuple(
-        values, encoders, base_offset=0
-    )
+    encoders: list[BaseEncoder] = [registry.get_encoder(t) for t in types]
+    return _resolve_tuple(values, encoders, base_offset=0)
 
 
-def _get_head_size(encoder):
+def _get_head_size(encoder: BaseEncoder) -> int:
     """
     Returns the number of bytes that ``encoder`` contributes to the head
     section of a standard ABI-encoded tuple.
@@ -93,7 +97,7 @@ def _get_head_size(encoder):
     return 32
 
 
-def _resolve_value(value, encoder, base_offset):
+def _resolve_value(value: Any, encoder: BaseEncoder, base_offset: int) -> Any:
     """
     Resolve a single (value, encoder) tuple at the given offset.
 
@@ -112,7 +116,7 @@ def _resolve_value(value, encoder, base_offset):
         # exact encoded byte width: 32 for standard-ABI types, 1/4/20/…  for
         # packed types.  Dynamic encoders have no data_byte_size, so we pass
         # None and fill it in after the hook returns (see below).
-        size = getattr(encoder, "data_byte_size", None)
+        size: int | None = getattr(encoder, "data_byte_size", None)
         ctx = EncodingContext(
             offset=base_offset,
             size=size,
@@ -122,7 +126,11 @@ def _resolve_value(value, encoder, base_offset):
     return value
 
 
-def _resolve_tuple(values, encoders, base_offset):
+def _resolve_tuple(
+    values: Iterable[Any],
+    encoders: Sequence[BaseEncoder],
+    base_offset: int,
+) -> list[Any]:
     """
     Resolve hooks in a flat sequence of ``(value, encoder)`` tuples.
 
@@ -138,9 +146,9 @@ def _resolve_tuple(values, encoders, base_offset):
 
     current_head_pos = 0
     current_tail_size = 0
-    resolved = list(values)  # shallow copy
+    resolved: list[Any] = list(values)  # shallow copy
 
-    for i, (value, encoder) in enumerate(zip(values, encoders)):
+    for i, (value, encoder) in enumerate(zip(resolved, encoders)):
         is_dynamic = getattr(encoder, "is_dynamic", False)
 
         if is_dynamic:
@@ -154,7 +162,7 @@ def _resolve_tuple(values, encoders, base_offset):
         # Advance position counters using the actual encoded byte length so
         # that packed encoders (uint8 → 1 byte, address → 20 bytes, etc.) are
         # tracked correctly alongside standard 32-byte-slot ABI encoders.
-        encoded = encoder(resolved_value)
+        encoded: bytes = encoder(resolved_value)
         if is_dynamic:
             current_tail_size += len(encoded)
             current_head_pos += 32  # head slot is always 32 bytes (offset pointer)
@@ -164,7 +172,11 @@ def _resolve_tuple(values, encoders, base_offset):
     return resolved
 
 
-def _resolve_array(values, encoder, base_offset):
+def _resolve_array(
+    values: Sequence[Any],
+    encoder: BaseArrayEncoder,
+    base_offset: int,
+) -> list[Any]:
     """
     Recurse into an array value.
 
@@ -183,8 +195,8 @@ def _resolve_array(values, encoder, base_offset):
     The count slot is only present for
     :class:`~eth_abi.encoding.DynamicArrayEncoder`.
     """
-    item_enc = encoder.item_encoder
-    items_dynamic = getattr(item_enc, "is_dynamic", False)
+    item_enc: BaseEncoder = encoder.item_encoder
+    items_dynamic: bool = getattr(item_enc, "is_dynamic", False)
 
     # DynamicArrayEncoder prepends a 32-byte element count; others do not.
     if isinstance(encoder, DynamicArrayEncoder):
@@ -192,27 +204,23 @@ def _resolve_array(values, encoder, base_offset):
     else:
         elements_base = base_offset
 
-    resolved = list(values)  # shallow copy
+    resolved: list[Any] = list(values)  # shallow copy
 
     if items_dynamic:
         # Head section: one 32-byte offset pointer per element.
-        head_total = 32 * len(values)
+        head_total = 32 * len(resolved)
         current_tail_size = 0
-        for i, item in enumerate(values):
+        for i, item in enumerate(resolved):
             item_base = elements_base + head_total + current_tail_size
-            resolved_item = _resolve_value(
-                item, item_enc, item_base
-            )
+            resolved_item = _resolve_value(item, item_enc, item_base)
             resolved[i] = resolved_item
             current_tail_size += len(item_enc(resolved_item))
     else:
         # Static ABI items or packed items: laid out sequentially.
         current_pos = 0
-        for i, item in enumerate(values):
+        for i, item in enumerate(resolved):
             item_base = elements_base + current_pos
-            resolved_item = _resolve_value(
-                item, item_enc, item_base
-            )
+            resolved_item = _resolve_value(item, item_enc, item_base)
             resolved[i] = resolved_item
             current_pos += len(item_enc(resolved_item))
 
