@@ -2,6 +2,9 @@ from eth_abi.packed import (
     encode_packed,
     resolve_hooks_packed,
 )
+from eth_abi.hooks import (
+    EncodingContext,
+)
 from eth_abi.registry import (
     registry_packed,
 )
@@ -22,8 +25,7 @@ def test_packed_hook_fixed_size_uint8_offset():
     # uint8 = 1 byte each → hook is at offset 2
     resolved = resolve_hooks_packed(["uint8", "uint8", "uint8"], [1, 2, hook])
     encode_packed(["uint8", "uint8", "uint8"], resolved)
-    assert contexts[0].offset == 2
-    assert contexts[0].type_str == "uint8"
+    assert contexts[0] == EncodingContext(offset=2, size=1, encoder=registry_packed.get_encoder("uint8"))
 
 
 def test_packed_hook_address_offset():
@@ -37,8 +39,7 @@ def test_packed_hook_address_offset():
     # uint8=1 byte → hook is at offset 1
     resolved = resolve_hooks_packed(["uint8", "address"], [1, hook])
     encode_packed(["uint8", "address"], resolved)
-    assert contexts[0].offset == 1
-    assert contexts[0].type_str == "address"
+    assert contexts[0] == EncodingContext(offset=1, size=20, encoder=registry_packed.get_encoder("address"))
 
 
 def test_packed_hook_variable_bytes_before_hook():
@@ -52,8 +53,7 @@ def test_packed_hook_variable_bytes_before_hook():
     # b'hello' = 5 bytes, uint8 = 1 byte → hook at offset 6
     resolved = resolve_hooks_packed(["bytes", "uint8", "uint8"], [b"hello", 2, hook])
     encode_packed(["bytes", "uint8", "uint8"], resolved)
-    assert contexts[0].offset == 6
-    assert contexts[0].type_str == "uint8"
+    assert contexts[0] == EncodingContext(offset=6, size=1, encoder=registry_packed.get_encoder("uint8"))
 
 
 def test_packed_hook_result_matches_explicit_value():
@@ -80,8 +80,11 @@ def test_packed_hook_multiple_hooks():
         [make_hook(1), make_hook(2), make_hook(3)],
     )
     encode_packed(["uint8", "uint8", "uint8"], resolved)
-    assert [c.offset for c in contexts] == [0, 1, 2]
-    assert [c.type_str for c in contexts] == ["uint8", "uint8", "uint8"]
+    contexts == [
+        EncodingContext(offset=0, size=1, encoder=registry_packed.get_encoder("uint8")),
+        EncodingContext(offset=1, size=1, encoder=registry_packed.get_encoder("uint8")),
+        EncodingContext(offset=2, size=1, encoder=registry_packed.get_encoder("uint8")),
+    ]
 
 
 def test_packed_hook_uint256_offset():
@@ -95,8 +98,7 @@ def test_packed_hook_uint256_offset():
     # uint8=1 byte, uint256=32 bytes → hook at offset 1
     resolved = resolve_hooks_packed(["uint8", "uint256"], [1, hook])
     encode_packed(["uint8", "uint256"], resolved)
-    assert contexts[0].offset == 1
-    assert contexts[0].type_str == "uint256"
+    assert contexts[0] == EncodingContext(offset=1, size=32, encoder=registry_packed.get_encoder("uint256"))
 
 
 # ---------------------------------------------------------------------------
@@ -138,8 +140,7 @@ def _apply_fixed_patches(tmpl, contexts, data1):
     """
     result = tmpl
     for ctx in contexts:
-        enc = registry_packed.get_encoder(ctx.type_str)
-        size = enc.data_byte_size
+        size = ctx.encoder.data_byte_size
         result = _patch_packed(result, ctx.offset, data1[ctx.offset : ctx.offset + size])
     return result
 
@@ -263,8 +264,7 @@ def test_resolve_hooks_packed_basic():
     assert resolved == [1, 99, 3]
     assert len(captured) == 1
     # uint8 = 1 byte, so hook is at offset 1
-    assert captured[0].offset == 1
-    assert captured[0].type_str == "uint8"
+    assert captured[0] == EncodingContext(offset=1, size=1, encoder=registry_packed.get_encoder("uint8"))
 
 
 def test_resolve_hooks_packed_address():
@@ -278,8 +278,7 @@ def test_resolve_hooks_packed_address():
     types = ["uint8", "address"]
     resolve_hooks_packed(types, [1, hook])
     # uint8 = 1 byte, so address hook is at offset 1
-    assert captured[0].offset == 1
-    assert captured[0].type_str == "address"
+    assert captured[0] == EncodingContext(offset=1, size=20, encoder=registry_packed.get_encoder("address"))
 
 
 def test_resolve_hooks_packed_variable_bytes():
@@ -293,8 +292,7 @@ def test_resolve_hooks_packed_variable_bytes():
     types = ["bytes", "uint8"]
     resolve_hooks_packed(types, [b"hello", hook])
     # b"hello" = 5 bytes packed, so uint8 hook is at offset 5
-    assert captured[0].offset == 5
-    assert captured[0].type_str == "uint8"
+    assert captured[0] == EncodingContext(offset=5, size=1, encoder=registry_packed.get_encoder("uint8"))
 
 
 def test_resolve_hooks_packed_then_encode_matches_direct():

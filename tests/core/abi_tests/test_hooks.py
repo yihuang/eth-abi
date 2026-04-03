@@ -30,8 +30,7 @@ class PatchContext:
 
     def apply(self, tmpl):
         for ctx, value in self.entries:
-            enc = registry.get_encoder(ctx.type_str)
-            encoded_real_tail = enc(value)
+            encoded_real_tail = ctx.encoder(value)
             tmpl = tmpl[:ctx.offset] + encoded_real_tail + tmpl[ctx.offset + len(encoded_real_tail) :]
         return tmpl
 
@@ -202,8 +201,7 @@ def test_resolve_hooks_public_api_basic():
     resolved = resolve_hooks(types, [1, hook, 3])
     assert resolved == [1, 42, 3]
     assert len(captured) == 1
-    assert captured[0].offset == 32
-    assert captured[0].type_str == "uint256"
+    assert captured[0] == EncodingContext(offset=32, size=32, encoder=registry.get_encoder("uint256"))
 
 
 def test_resolve_hooks_public_api_dynamic():
@@ -217,8 +215,11 @@ def test_resolve_hooks_public_api_dynamic():
     types = ["bytes", "uint256", "bytes"]
     resolve_hooks(types, [b"hello", 42, hook])
     # Head: 3 x 32 = 96 bytes; first bytes tail = 64 bytes (32 length prefix + 32 data right-padded to 32 bytes)
-    assert captured[0].offset == 96 + 64
-    assert captured[0].type_str == "bytes"
+    assert captured[0] == EncodingContext(
+        offset=96 + 32 + 32,
+        size=None,
+        encoder=registry.get_encoder("bytes"),
+    )
 
 
 def test_resolve_hooks_public_api_nested_array():
@@ -232,8 +233,11 @@ def test_resolve_hooks_public_api_nested_array():
     types = ["uint256[]"]
     resolve_hooks(types, [[1, 2, hook]])
     # Head: 32 (pointer) → array tail at 32: count(32) + elem0(32) + elem1(32) = 96
-    assert captured[0].offset == 32 + 32 + 32 + 32
-    assert captured[0].type_str == "uint256"
+    assert captured[0] == EncodingContext(
+        offset=32 + 32 + 32 + 32,
+        size=32,
+        encoder=registry.get_encoder("uint256"),
+    )
 
 
 def test_resolve_hooks_public_api_nested_tuple():
@@ -250,8 +254,7 @@ def test_resolve_hooks_public_api_nested_tuple():
     assert resolved[0][1] == 8
     assert resolved[1] == 9
     # The static tuple is inlined at offset 0; its first element is at offset 0.
-    assert captured[0].offset == 0
-    assert captured[0].type_str == "uint256"
+    assert captured[0] == EncodingContext(offset=0, size=32, encoder=registry.get_encoder("uint256"))
 
 
 def test_resolve_hooks_then_encode_matches_direct():

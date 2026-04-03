@@ -6,7 +6,7 @@ who need to discover the exact byte offsets of argument slots in
 ABI-encoded output without modifying the core encoder.
 """
 
-from typing import NamedTuple
+from typing import NamedTuple, Any
 
 from eth_utils import (
     is_list_like,
@@ -28,15 +28,13 @@ class EncodingContext(NamedTuple):
         data begins.  For static types, this is the position of the value in
         the head section.  For dynamic types, this is the position of the data
         (length prefix included) in the tail section.
-    :param type_str: The ABI type string for this value, e.g. ``"uint256"``
-        or ``"bytes"``.
     :param size: The encoded byte size of the value at this position.
         It's None for dynamic types.
     """
 
     offset: int
-    type_str: str
     size: int | None
+    encoder: Any
 
 
 def resolve_hooks(registry, types, values):
@@ -67,11 +65,11 @@ def resolve_hooks(registry, types, values):
     """
     encoders = [registry.get_encoder(t) for t in types]
     return _resolve_tuple(
-        values, encoders, types, base_offset=0
+        values, encoders, base_offset=0
     )
 
 
-def _get_head_size(encoder, type_str):
+def _get_head_size(encoder):
     """
     Returns the number of bytes that ``encoder`` contributes to the head
     section of a standard ABI-encoded tuple.
@@ -84,24 +82,20 @@ def _get_head_size(encoder, type_str):
     if getattr(encoder, "is_dynamic", False):
         return 32
     if isinstance(encoder, TupleEncoder):
-        abi_type = grammar.parse(type_str)
-        sub_types = [c.to_type_str() for c in abi_type.components]
-        return sum(_get_head_size(e, ts) for e, ts in zip(encoder.encoders, sub_types))
+        return sum(_get_head_size(e) for e in encoder.encoders)
     if (
         hasattr(encoder, "array_size")
         and hasattr(encoder, "item_encoder")
         and encoder.array_size is not None
     ):
-        abi_type = grammar.parse(type_str)
-        item_type_str = abi_type.item_type.to_type_str()
-        return encoder.array_size * _get_head_size(encoder.item_encoder, item_type_str)
+        return encoder.array_size * _get_head_size(encoder.item_encoder)
     # All other primitive static types (uint, int, address, bool, bytesN, …)
     return 32
 
 
-def _resolve_value(value, encoder, type_str, base_offset):
+def _resolve_value(value, encoder, base_offset):
     """
-    Resolve a single (value, encoder, type_str) triple at the given offset.
+    Resolve a single (value, encoder) tuple at the given offset.
 
     * Callables are invoked with an :class:`EncodingContext` and replaced by
       their return value.
@@ -110,13 +104,9 @@ def _resolve_value(value, encoder, type_str, base_offset):
     * All other values are returned unchanged.
     """
     if isinstance(encoder, TupleEncoder) and is_list_like(value):
-        abi_type = grammar.parse(type_str)
-        sub_types = [c.to_type_str() for c in abi_type.components]
-        return _resolve_tuple(value, encoder.encoders, sub_types, base_offset)
+        return _resolve_tuple(value, encoder.encoders, base_offset)
     if isinstance(encoder, BaseArrayEncoder) and is_list_like(value):
-        abi_type = grammar.parse(type_str)
-        item_type_str = abi_type.item_type.to_type_str()
-        return _resolve_array(value, encoder, item_type_str, base_offset)
+        return _resolve_array(value, encoder, base_offset)
     if callable(value):
         # For fixed-size encoders (static primitives) data_byte_size is the
         # exact encoded byte width: 32 for standard-ABI types, 1/4/20/…  for
@@ -125,16 +115,16 @@ def _resolve_value(value, encoder, type_str, base_offset):
         size = getattr(encoder, "data_byte_size", None)
         ctx = EncodingContext(
             offset=base_offset,
-            type_str=type_str,
             size=size,
+            encoder=encoder,
         )
         return value(ctx)
     return value
 
 
-def _resolve_tuple(values, encoders, type_strs, base_offset):
+def _resolve_tuple(values, encoders, base_offset):
     """
-    Resolve hooks in a flat sequence of ``(value, encoder, type_str)`` triples.
+    Resolve hooks in a flat sequence of ``(value, encoder)`` tuples.
 
     Handles both standard ABI layout (static head + dynamic tail) and packed
     layout (all items sequential, no 32-byte padding for static items).
@@ -144,13 +134,13 @@ def _resolve_tuple(values, encoders, type_strs, base_offset):
     """
     # Analytic head total — used only to compute absolute offsets for dynamic
     # items whose data lives in the tail section.
-    head_total = sum(_get_head_size(e, ts) for e, ts in zip(encoders, type_strs))
+    head_total = sum(_get_head_size(e) for e in encoders)
 
     current_head_pos = 0
     current_tail_size = 0
     resolved = list(values)  # shallow copy
 
-    for i, (value, encoder, type_str) in enumerate(zip(values, encoders, type_strs)):
+    for i, (value, encoder) in enumerate(zip(values, encoders)):
         is_dynamic = getattr(encoder, "is_dynamic", False)
 
         if is_dynamic:
@@ -158,7 +148,7 @@ def _resolve_tuple(values, encoders, type_strs, base_offset):
         else:
             item_base = base_offset + current_head_pos
 
-        resolved_value = _resolve_value(value, encoder, type_str, item_base)
+        resolved_value = _resolve_value(value, encoder, item_base)
         resolved[i] = resolved_value
 
         # Advance position counters using the actual encoded byte length so
@@ -174,7 +164,7 @@ def _resolve_tuple(values, encoders, type_strs, base_offset):
     return resolved
 
 
-def _resolve_array(values, encoder, item_type_str, base_offset):
+def _resolve_array(values, encoder, base_offset):
     """
     Recurse into an array value.
 
@@ -211,7 +201,7 @@ def _resolve_array(values, encoder, item_type_str, base_offset):
         for i, item in enumerate(values):
             item_base = elements_base + head_total + current_tail_size
             resolved_item = _resolve_value(
-                item, item_enc, item_type_str, item_base
+                item, item_enc, item_base
             )
             resolved[i] = resolved_item
             current_tail_size += len(item_enc(resolved_item))
@@ -221,7 +211,7 @@ def _resolve_array(values, encoder, item_type_str, base_offset):
         for i, item in enumerate(values):
             item_base = elements_base + current_pos
             resolved_item = _resolve_value(
-                item, item_enc, item_type_str, item_base
+                item, item_enc, item_base
             )
             resolved[i] = resolved_item
             current_pos += len(item_enc(resolved_item))
