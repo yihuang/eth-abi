@@ -15,7 +15,7 @@ from eth_abi.decoding import (
     ContextFramesBytesIO,
 )
 from eth_abi.hooks import (
-    resolve_hooks as _resolve_hooks_impl,
+    encode_with_hooks,
 )
 from eth_abi.exceptions import (
     EncodingError,
@@ -54,39 +54,6 @@ class ABIEncoder(BaseABICoder):
     def __init__(self, registry: ABIRegistry) -> None:
         super().__init__(registry)
 
-    def resolve_hooks(
-        self, types: Iterable[TypeStr], args: Iterable[Any]
-    ) -> list[Any]:
-        """
-        Resolves callable hook values within ``args``, returning a new list
-        with each hook replaced by its return value.
-
-        A hook is any callable placed where a value is expected.  Before
-        encoding, the hook is called with an
-        :class:`~eth_abi.hooks.EncodingContext` object that reports the
-        absolute byte offset at which the value's encoded data will appear in
-        the final output, the ABI type string for that position, the encoded
-        byte size, and whether packed encoding is in use.
-
-        Hooks may be placed at primitive leaf positions at any depth of
-        nesting: directly in ``args``, inside tuple values, inside array
-        values, or any combination thereof.
-
-        :param types: A list or tuple of string representations of the ABI
-            types e.g. ``('uint256', 'bytes[]', '(int,int)')``
-        :param args: A list or tuple of python values, possibly containing
-            callable hooks.
-
-        :returns: A new list with all hooks replaced by their return values.
-            The resolved list can be passed directly to :meth:`encode`.
-        """
-        validate_list_like_param(types, "types")
-        validate_list_like_param(args, "args")
-
-        return _resolve_hooks_impl(
-            self._registry, list(types), list(args)
-        )
-
     def encode(self, types: Iterable[TypeStr], args: Iterable[Any]) -> bytes:
         """
         Encodes the python values in ``args`` as a sequence of binary values of
@@ -107,6 +74,29 @@ class ABIEncoder(BaseABICoder):
         encoder = self._registry.get_tuple_encoder(*types)
 
         return encoder(args)
+
+    def encode_with_hooks(self, types: Iterable[TypeStr], args: Iterable[Any]) -> bytes:
+        """
+        Encodes the python values in ``args`` as a sequence of binary values of
+        the ABI types in ``types`` via the head-tail mechanism.  Any callable
+        hooks in ``args`` will be resolved before encoding.
+
+        :param types: A list or tuple of string representations of the ABI types
+            that will be used for encoding e.g.  ``('uint256', 'bytes[]',
+            '(int,int)')``
+        :param args: A list or tuple of python values to be encoded.  These may
+            contain callable hooks.
+
+        :returns: The head-tail encoded binary representation of the python
+            values in ``args`` as values of the ABI types in ``types``.
+        """
+        # validate encode types and args
+        validate_list_like_param(types, "types")
+        validate_list_like_param(args, "args")
+
+        encoder = self._registry.get_tuple_encoder(*types)
+
+        return encode_with_hooks(encoder, args)
 
     def is_encodable(self, typ: TypeStr, arg: Any) -> bool:
         """

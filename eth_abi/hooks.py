@@ -13,7 +13,8 @@ from eth_utils import (
     is_list_like,
 )
 
-from eth_abi.encoding import (
+from .encoding import (
+    BaseEncoder,
     BaseArrayEncoder,
     BaseEncoder,
     DynamicArrayEncoder,
@@ -39,14 +40,10 @@ class EncodingContext(NamedTuple):
     encoder: Any
 
 
-def resolve_hooks(
-    registry: ABIRegistry,
-    types: Iterable[str],
-    values: Iterable[Any],
-) -> list[Any]:
+def resolve_hooks(encoder: BaseEncoder, value: Any) -> Any:
     """
-    Resolve callable hook values within ``values``, returning a new list
-    with each hook replaced by its return value.
+    Resolve callable hooks within ``value``, returning a new value
+    with each hook replaced by its placeholder value.
 
     A hook is any callable placed where a value is expected.  Before
     encoding, the hook is called with an :class:`EncodingContext` object
@@ -55,22 +52,25 @@ def resolve_hooks(
     the encoded byte size, and whether packed encoding is in use.
 
     Hooks may be placed at primitive leaf positions at any depth of nesting:
-    directly in ``values``, inside tuple values, inside array values, or any
+    directly in ``value``, inside tuple values, inside array values, or any
     combination thereof.
 
-    :param registry: The :class:`~eth_abi.registry.ABIRegistry` to use for
-        looking up encoders.
-    :param types: A sequence of ABI type strings, e.g.
-        ``['uint256', 'bytes[]', '(int,int)']``.
-    :param values: A sequence of python values, possibly containing callable
+    :param encoder: The :class:`~eth_abi.encoding.BaseEncoder` to use for
+        the value.
+    :param value: A python value, possibly containing callable
         hooks.
 
-    :returns: A new list with all hooks replaced by their return values.
-        The resolved list can be passed directly to
-        :func:`~eth_abi.abi.encode` or :func:`~eth_abi.packed.encode_packed`.
+    :returns: A new value with all hooks replaced by their placeholders.
+        The resolved value can be passed directly to encode.
     """
-    encoders: list[BaseEncoder] = [registry.get_encoder(t) for t in types]
-    return _resolve_tuple(values, encoders, base_offset=0)
+    return _resolve_value(
+        value, encoder, 0
+    )
+
+
+def encode_with_hooks(encoder: BaseEncoder, value: Any) -> bytes:
+    value = resolve_hooks(encoder, value)
+    return encoder(value)
 
 
 def _get_head_size(encoder: BaseEncoder) -> int:
@@ -92,6 +92,7 @@ def _get_head_size(encoder: BaseEncoder) -> int:
         and hasattr(encoder, "item_encoder")
         and encoder.array_size is not None
     ):
+        assert isinstance(encoder.array_size, int)
         return encoder.array_size * _get_head_size(encoder.item_encoder)
     # All other primitive static types (uint, int, address, bool, bytesN, …)
     return 32

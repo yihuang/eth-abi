@@ -1,6 +1,6 @@
 from eth_abi import (
     encode,
-    resolve_hooks,
+    encode_with_hooks,
 )
 from eth_abi.hooks import (
     EncodingContext,
@@ -42,8 +42,7 @@ def test_round_trip_all_static_args():
     data1 = encode(types, args)
 
     ctx = PatchContext()
-    resolved = resolve_hooks(types, [ctx.hook(v, 0) for v in args])
-    tmpl = encode(types, resolved)
+    tmpl = encode_with_hooks(types, [ctx.hook(v, 0) for v in args])
     assert ctx.apply(tmpl) == data1
 
 
@@ -59,7 +58,7 @@ def test_round_trip_mixed_static_types():
     data1 = encode(types, args)
 
     ctx = PatchContext()
-    resolved = resolve_hooks(
+    tmpl = encode_with_hooks(
         types,
         [
             ctx.hook(args[0], 0),
@@ -68,7 +67,6 @@ def test_round_trip_mixed_static_types():
             ctx.hook(args[3], b"\x00" * 32),
         ],
     )
-    tmpl = encode(types, resolved)
 
     assert ctx.apply(tmpl) == data1
 
@@ -80,11 +78,10 @@ def test_round_trip_dynamic():
     data1 = encode(types, args)
 
     ctx = PatchContext()
-    resolved = resolve_hooks(types, [
+    tmpl = encode_with_hooks(types, [
         ctx.hook(args[0], b"\x00" * len(args[0])),
         ctx.hook(args[1], "*" * len(args[1])),
     ])
-    tmpl = encode(types, resolved)
     assert ctx.apply(tmpl) == data1
 
 
@@ -97,7 +94,7 @@ def test_round_trip_mixed_static_and_dynamic():
     data1 = encode(types, args)
 
     ctx = PatchContext()
-    resolved = resolve_hooks(
+    tmpl = encode_with_hooks(
         types,
         [
             ctx.hook(args[0], 0),
@@ -106,7 +103,6 @@ def test_round_trip_mixed_static_and_dynamic():
             real_bytes2,
         ],
     )
-    tmpl = encode(types, resolved)
 
     assert ctx.apply(tmpl) == data1
 
@@ -119,8 +115,7 @@ def test_round_trip_dynamic_array():
     data1 = encode(types, args)
 
     ctx = PatchContext()
-    resolved = resolve_hooks(types, [real_value[:-1] + [ctx.hook(real_value[-1], 0)], args[1]])
-    tmpl = encode(types, resolved)
+    tmpl = encode_with_hooks(types, [real_value[:-1] + [ctx.hook(real_value[-1], 0)], args[1]])
     assert ctx.apply(tmpl) == data1
 
 
@@ -132,8 +127,7 @@ def test_round_trip_nested_tuple_inner_hook():
 
     ctx = PatchContext()
     # Hook inside the nested tuple for the first element
-    resolved = resolve_hooks(types, [(ctx.hook(args[0][0], 0), args[0][1]), args[1]])
-    tmpl = encode(types, resolved)
+    tmpl = encode_with_hooks(types, [(ctx.hook(args[0][0], 0), args[0][1]), args[1]])
     assert ctx.apply(tmpl) == data1
 
 
@@ -147,8 +141,7 @@ def test_round_trip_hook_inside_array_in_tuple():
     ctx = PatchContext()
     # Put a hook on element[1] of the array.
     array_with_hook = [args[1][0], ctx.hook(args[1][1], 0), args[1][2]]
-    resolved = resolve_hooks(types, [args[0], array_with_hook])
-    tmpl = encode(types, resolved)
+    tmpl = encode_with_hooks(types, [args[0], array_with_hook])
     assert ctx.apply(tmpl) == data1
 
 
@@ -161,8 +154,7 @@ def test_round_trip_hook_deep_in_nested_tuple():
 
     ctx = PatchContext()
     # Hook on the uint256 inside the dynamic nested tuple.
-    resolved = resolve_hooks(types, [(args[0][0], ctx.hook(args[0][1], 0)), args[1]])
-    tmpl = encode(types, resolved)
+    tmpl = encode_with_hooks(types, [(args[0][0], ctx.hook(args[0][1], 0)), args[1]])
     assert ctx.apply(tmpl) == data1
 
 
@@ -179,18 +171,17 @@ def test_round_trip_hook_in_array_of_tuples():
         (ctx.hook(args[0][1][0], 0), args[0][1][1]),
         args[0][2],
     ]
-    resolved = resolve_hooks(types, [array_with_hook])
-    tmpl = encode(types, resolved)
+    tmpl = encode_with_hooks(types, [array_with_hook])
     assert ctx.apply(tmpl) == data1
 
 
 # ---------------------------------------------------------------------------
-# Tests for the public resolve_hooks() API
+# Tests for the public encode_with_hooks() API
 # ---------------------------------------------------------------------------
 
 
-def test_resolve_hooks_public_api_basic():
-    """resolve_hooks() returns values with hooks replaced by their return values."""
+def test_encode_with_hooks_public_api_basic():
+    """encode_with_hooks() returns values with hooks replaced by their return values."""
     captured = []
 
     def hook(ctx):
@@ -198,14 +189,13 @@ def test_resolve_hooks_public_api_basic():
         return 42
 
     types = ["uint256", "uint256", "uint256"]
-    resolved = resolve_hooks(types, [1, hook, 3])
-    assert resolved == [1, 42, 3]
+    encode_with_hooks(types, [1, hook, 3])
     assert len(captured) == 1
     assert captured[0] == EncodingContext(offset=32, size=32, encoder=registry.get_encoder("uint256"))
 
 
-def test_resolve_hooks_public_api_dynamic():
-    """resolve_hooks() computes correct tail offsets for dynamic types."""
+def test_encode_with_hooks_public_api_dynamic():
+    """encode_with_hooks() computes correct tail offsets for dynamic types."""
     captured = []
 
     def hook(ctx):
@@ -213,7 +203,7 @@ def test_resolve_hooks_public_api_dynamic():
         return b"\x00" * 5
 
     types = ["bytes", "uint256", "bytes"]
-    resolve_hooks(types, [b"hello", 42, hook])
+    encode_with_hooks(types, [b"hello", 42, hook])
     # Head: 3 x 32 = 96 bytes; first bytes tail = 64 bytes (32 length prefix + 32 data right-padded to 32 bytes)
     assert captured[0] == EncodingContext(
         offset=96 + 32 + 32,
@@ -222,8 +212,8 @@ def test_resolve_hooks_public_api_dynamic():
     )
 
 
-def test_resolve_hooks_public_api_nested_array():
-    """resolve_hooks() correctly resolves a hook inside an array."""
+def test_encode_with_hooks_public_api_nested_array():
+    """encode_with_hooks() correctly resolves a hook inside an array."""
     captured = []
 
     def hook(ctx):
@@ -231,7 +221,7 @@ def test_resolve_hooks_public_api_nested_array():
         return 99
 
     types = ["uint256[]"]
-    resolve_hooks(types, [[1, 2, hook]])
+    encode_with_hooks(types, [[1, 2, hook]])
     # Head: 32 (pointer) → array tail at 32: count(32) + elem0(32) + elem1(32) = 96
     assert captured[0] == EncodingContext(
         offset=32 + 32 + 32 + 32,
@@ -240,8 +230,8 @@ def test_resolve_hooks_public_api_nested_array():
     )
 
 
-def test_resolve_hooks_public_api_nested_tuple():
-    """resolve_hooks() recurses into nested tuples."""
+def test_encode_with_hooks_public_api_nested_tuple():
+    """encode_with_hooks() recurses into nested tuples."""
     captured = []
 
     def hook(ctx):
@@ -249,16 +239,13 @@ def test_resolve_hooks_public_api_nested_tuple():
         return 7
 
     types = ["(uint256,uint256)", "uint256"]
-    resolved = resolve_hooks(types, [(hook, 8), 9])
-    assert resolved[0][0] == 7
-    assert resolved[0][1] == 8
-    assert resolved[1] == 9
+    resolved = encode_with_hooks(types, [(hook, 8), 9])
     # The static tuple is inlined at offset 0; its first element is at offset 0.
     assert captured[0] == EncodingContext(offset=0, size=32, encoder=registry.get_encoder("uint256"))
 
 
-def test_resolve_hooks_then_encode_matches_direct():
-    """encode(resolve_hooks(types, args)) == encode(types, args) for all hook positions."""
+def test_encode_with_hooks_then_encode_matches_direct():
+    """encode(encode_with_hooks(types, args)) == encode(types, args) for all hook positions."""
     types = ["uint256", "bytes", "address"]
     args = [123, b"hello", "0x" + "ab" * 20]
     data_direct = encode(types, args)
@@ -272,8 +259,7 @@ def test_resolve_hooks_then_encode_matches_direct():
 
         return hook
 
-    resolved = resolve_hooks(types, [make_hook(v) for v in args])
-    data_via_resolve = encode(types, resolved)
+    data_via_resolve = encode_with_hooks(types, [make_hook(v) for v in args])
     assert data_direct == data_via_resolve
 
 
@@ -292,7 +278,7 @@ def test_encoding_context_size_static_abi():
             return ret_val
         return hook
 
-    resolve_hooks(
+    encode_with_hooks(
         ["uint256", "address", "bool", "bytes32"],
         [make_hook(0), make_hook("0x" + "ab" * 20), make_hook(False), make_hook(b"\x00" * 32)],
     )
@@ -301,7 +287,7 @@ def test_encoding_context_size_static_abi():
 
 
 def test_encoding_context_size_dynamic_abi_set_after_hook():
-    """size is None during hook execution but set after resolve_hooks() returns."""
+    """size is None during hook execution but set after encode_with_hooks() returns."""
     sizes_during = []
     ctx_refs = []
 
@@ -310,7 +296,7 @@ def test_encoding_context_size_dynamic_abi_set_after_hook():
         ctx_refs.append(ctx)
         return b"\x00" * 5  # 5-byte placeholder
 
-    resolve_hooks(["bytes"], [hook])
+    encode_with_hooks(["bytes"], [hook])
     # During hook execution size was None
     assert sizes_during[0] is None
     # size is None for dynamic types, it's tricky to do runtime replacing for dynamic types.
@@ -330,8 +316,7 @@ def test_encoding_context_size_dynamic_abi_round_trip():
         ctx_refs.append(ctx)
         return b"\x00" * len(real_bytes)  # same-length placeholder
 
-    resolved = resolve_hooks(types, [args[0], hook, args[2]])
-    tmpl = encode(types, resolved)
+    tmpl = encode_with_hooks(types, [args[0], hook, args[2]])
 
     ctx = ctx_refs[0]
     # Patch the placeholder region with the real encoded tail

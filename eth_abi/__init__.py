@@ -5,9 +5,9 @@ from importlib.metadata import (
 from eth_abi.abi import (
     decode,
     encode,
+    encode_with_hooks,
     is_encodable,
     is_encodable_type,
-    resolve_hooks,
 )
 from eth_abi.hooks import (
     EncodingContext,

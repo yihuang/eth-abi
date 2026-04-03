@@ -1,6 +1,6 @@
 from eth_abi.packed import (
     encode_packed,
-    resolve_hooks_packed,
+    encode_packed_with_hooks,
 )
 from eth_abi.hooks import (
     EncodingContext,
@@ -23,8 +23,7 @@ def test_packed_hook_fixed_size_uint8_offset():
         return 0
 
     # uint8 = 1 byte each → hook is at offset 2
-    resolved = resolve_hooks_packed(["uint8", "uint8", "uint8"], [1, 2, hook])
-    encode_packed(["uint8", "uint8", "uint8"], resolved)
+    resolved = encode_packed_with_hooks(["uint8", "uint8", "uint8"], [1, 2, hook])
     assert contexts[0] == EncodingContext(offset=2, size=1, encoder=registry_packed.get_encoder("uint8"))
 
 
@@ -37,8 +36,7 @@ def test_packed_hook_address_offset():
         return "0x" + "ab" * 20
 
     # uint8=1 byte → hook is at offset 1
-    resolved = resolve_hooks_packed(["uint8", "address"], [1, hook])
-    encode_packed(["uint8", "address"], resolved)
+    resolved = encode_packed_with_hooks(["uint8", "address"], [1, hook])
     assert contexts[0] == EncodingContext(offset=1, size=20, encoder=registry_packed.get_encoder("address"))
 
 
@@ -51,16 +49,14 @@ def test_packed_hook_variable_bytes_before_hook():
         return 0
 
     # b'hello' = 5 bytes, uint8 = 1 byte → hook at offset 6
-    resolved = resolve_hooks_packed(["bytes", "uint8", "uint8"], [b"hello", 2, hook])
-    encode_packed(["bytes", "uint8", "uint8"], resolved)
+    resolved = encode_packed_with_hooks(["bytes", "uint8", "uint8"], [b"hello", 2, hook])
     assert contexts[0] == EncodingContext(offset=6, size=1, encoder=registry_packed.get_encoder("uint8"))
 
 
 def test_packed_hook_result_matches_explicit_value():
     """Packed encoding with hook returning a value matches direct encoding."""
     result_explicit = encode_packed(["uint8", "uint8", "uint8"], [1, 99, 3])
-    resolved = resolve_hooks_packed(["uint8", "uint8", "uint8"], [1, lambda ctx: 99, 3])
-    result_hook = encode_packed(["uint8", "uint8", "uint8"], resolved)
+    result_hook = encode_packed_with_hooks(["uint8", "uint8", "uint8"], [1, lambda ctx: 99, 3])
     assert result_explicit == result_hook
 
 
@@ -75,11 +71,10 @@ def test_packed_hook_multiple_hooks():
 
         return hook
 
-    resolved = resolve_hooks_packed(
+    resolved = encode_packed_with_hooks(
         ["uint8", "uint8", "uint8"],
         [make_hook(1), make_hook(2), make_hook(3)],
     )
-    encode_packed(["uint8", "uint8", "uint8"], resolved)
     contexts == [
         EncodingContext(offset=0, size=1, encoder=registry_packed.get_encoder("uint8")),
         EncodingContext(offset=1, size=1, encoder=registry_packed.get_encoder("uint8")),
@@ -96,8 +91,7 @@ def test_packed_hook_uint256_offset():
         return 42
 
     # uint8=1 byte, uint256=32 bytes → hook at offset 1
-    resolved = resolve_hooks_packed(["uint8", "uint256"], [1, hook])
-    encode_packed(["uint8", "uint256"], resolved)
+    resolved = encode_packed_with_hooks(["uint8", "uint256"], [1, hook])
     assert contexts[0] == EncodingContext(offset=1, size=32, encoder=registry_packed.get_encoder("uint256"))
 
 
@@ -152,8 +146,7 @@ def test_packed_round_trip_all_fixed_size():
     data1 = encode_packed(types, args)
 
     contexts = []
-    resolved = resolve_hooks_packed(types, [_make_hook_p(contexts, 0) for _ in args])
-    tmpl = encode_packed(types, resolved)
+    tmpl = encode_packed_with_hooks(types, [_make_hook_p(contexts, 0) for _ in args])
 
     assert _apply_fixed_patches(tmpl, contexts, data1) == data1
 
@@ -165,7 +158,7 @@ def test_packed_round_trip_uint256_and_address():
     data1 = encode_packed(types, args)
 
     contexts = []
-    resolved = resolve_hooks_packed(
+    tmpl = encode_packed_with_hooks(
         types,
         [
             _make_hook_p(contexts, 0),
@@ -173,7 +166,6 @@ def test_packed_round_trip_uint256_and_address():
             _make_hook_p(contexts, 0),
         ],
     )
-    tmpl = encode_packed(types, resolved)
 
     assert _apply_fixed_patches(tmpl, contexts, data1) == data1
 
@@ -185,7 +177,7 @@ def test_packed_round_trip_bool_and_bytes32():
     data1 = encode_packed(types, args)
 
     contexts = []
-    resolved = resolve_hooks_packed(
+    tmpl = encode_packed_with_hooks(
         types,
         [
             _make_hook_p(contexts, False),
@@ -193,7 +185,6 @@ def test_packed_round_trip_bool_and_bytes32():
             _make_hook_p(contexts, 0),
         ],
     )
-    tmpl = encode_packed(types, resolved)
 
     assert _apply_fixed_patches(tmpl, contexts, data1) == data1
 
@@ -208,7 +199,7 @@ def test_packed_round_trip_variable_bytes_before_hook():
     contexts = []
     # Placeholder has the same byte length so tmpl has the same total size as
     # data1, keeping all subsequent offsets valid.
-    resolved = resolve_hooks_packed(
+    tmpl = encode_packed_with_hooks(
         types,
         [
             _make_hook_p(contexts, b"\x00" * len(real_bytes)),
@@ -216,7 +207,6 @@ def test_packed_round_trip_variable_bytes_before_hook():
             _make_hook_p(contexts, 0),
         ],
     )
-    tmpl = encode_packed(types, resolved)
 
     # For variable-length types the byte size is the gap to the next offset
     # (or to the end of data for the last element).
@@ -238,21 +228,20 @@ def test_packed_round_trip_hooks_at_subset_of_positions():
 
     # Only hook positions 0 and 2
     contexts = []
-    resolved = resolve_hooks_packed(
+    tmpl = encode_packed_with_hooks(
         types, [_make_hook_p(contexts, 0), args[1], _make_hook_p(contexts, 0)]
     )
-    tmpl = encode_packed(types, resolved)
 
     assert _apply_fixed_patches(tmpl, contexts, data1) == data1
 
 
 # ---------------------------------------------------------------------------
-# Tests for the public resolve_hooks_packed() API
+# Tests for the public encode_packed_with_hooks() API
 # ---------------------------------------------------------------------------
 
 
-def test_resolve_hooks_packed_basic():
-    """resolve_hooks_packed() returns values with hooks replaced by their return values."""
+def test_encode_packed_with_hooks_basic():
+    """encode_packed_with_hooks() returns values with hooks replaced by their return values."""
     captured = []
 
     def hook(ctx):
@@ -260,15 +249,14 @@ def test_resolve_hooks_packed_basic():
         return 99
 
     types = ["uint8", "uint8", "uint8"]
-    resolved = resolve_hooks_packed(types, [1, hook, 3])
-    assert resolved == [1, 99, 3]
+    resolved = encode_packed_with_hooks(types, [1, hook, 3])
     assert len(captured) == 1
     # uint8 = 1 byte, so hook is at offset 1
     assert captured[0] == EncodingContext(offset=1, size=1, encoder=registry_packed.get_encoder("uint8"))
 
 
-def test_resolve_hooks_packed_address():
-    """resolve_hooks_packed() tracks 20-byte address offsets correctly."""
+def test_encode_packed_with_hooks_address():
+    """encode_packed_with_hooks() tracks 20-byte address offsets correctly."""
     captured = []
 
     def hook(ctx):
@@ -276,13 +264,13 @@ def test_resolve_hooks_packed_address():
         return "0x" + "ab" * 20
 
     types = ["uint8", "address"]
-    resolve_hooks_packed(types, [1, hook])
+    encode_packed_with_hooks(types, [1, hook])
     # uint8 = 1 byte, so address hook is at offset 1
     assert captured[0] == EncodingContext(offset=1, size=20, encoder=registry_packed.get_encoder("address"))
 
 
-def test_resolve_hooks_packed_variable_bytes():
-    """resolve_hooks_packed() tracks offsets after variable-length bytes."""
+def test_encode_packed_with_hooks_variable_bytes():
+    """encode_packed_with_hooks() tracks offsets after variable-length bytes."""
     captured = []
 
     def hook(ctx):
@@ -290,13 +278,13 @@ def test_resolve_hooks_packed_variable_bytes():
         return 0
 
     types = ["bytes", "uint8"]
-    resolve_hooks_packed(types, [b"hello", hook])
+    encode_packed_with_hooks(types, [b"hello", hook])
     # b"hello" = 5 bytes packed, so uint8 hook is at offset 5
     assert captured[0] == EncodingContext(offset=5, size=1, encoder=registry_packed.get_encoder("uint8"))
 
 
-def test_resolve_hooks_packed_then_encode_matches_direct():
-    """encode_packed(resolve_hooks_packed(types, args)) == encode_packed(types, args)."""
+def test_encode_packed_with_hooks_then_encode_matches_direct():
+    """encode_packed(encode_packed_with_hooks(types, args)) == encode_packed(types, args)."""
     types = ["uint8", "uint16", "address", "bytes32"]
     args = [1, 500, "0x" + "cd" * 20, b"\xab" * 32]
     data_direct = encode_packed(types, args)
@@ -307,8 +295,7 @@ def test_resolve_hooks_packed_then_encode_matches_direct():
 
         return hook
 
-    resolved = resolve_hooks_packed(types, [make_hook(v) for v in args])
-    data_via_resolve = encode_packed(types, resolved)
+    data_via_resolve = encode_packed_with_hooks(types, [make_hook(v) for v in args])
     assert data_direct == data_via_resolve
 
 
@@ -331,7 +318,7 @@ def test_encoding_context_size_packed_fixed():
     types = ["uint8", "uint16", "uint32", "uint256", "address"]
     placeholders = [0, 0, 0, 0, "0x" + "00" * 20]
     hooks = [make_hook(p) for p in placeholders]
-    resolve_hooks_packed(types, hooks)
+    encode_packed_with_hooks(types, hooks)
 
     expected_sizes = [1, 2, 4, 32, 20]
     for ctx, expected in zip(captured, expected_sizes):
@@ -348,7 +335,7 @@ def test_encoding_context_size_packed_variable_bytes():
         ctx_refs.append(ctx)
         return b"\x00" * 7  # 7-byte placeholder
 
-    resolve_hooks_packed(["bytes"], [hook])
+    encode_packed_with_hooks(["bytes"], [hook])
     # bytes is dynamic in the packed sense (no data_byte_size); None during hook
     assert sizes_during[0] is None
     # size is None for dynamic types, it's tricky to do runtime replacing for dynamic types.
@@ -357,7 +344,6 @@ def test_encoding_context_size_packed_variable_bytes():
 
 def test_encoding_context_size_packed_round_trip():
     """ctx.size works for round-trip patching in packed mode."""
-    from eth_abi.packed import resolve_hooks_packed
 
     types = ["uint8", "uint32", "uint8"]
     args = [10, 99999, 20]
@@ -369,8 +355,7 @@ def test_encoding_context_size_packed_round_trip():
         ctx_refs.append(ctx)
         return 0  # zero placeholder
 
-    resolved = resolve_hooks_packed(types, [args[0], hook, args[2]])
-    tmpl = encode_packed(types, resolved)
+    tmpl = encode_packed_with_hooks(types, [args[0], hook, args[2]])
 
     ctx = ctx_refs[0]
     assert ctx.size == 4  # uint32 = 4 bytes
