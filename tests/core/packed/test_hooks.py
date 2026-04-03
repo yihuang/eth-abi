@@ -322,7 +322,9 @@ def test_encoding_context_size_packed_fixed():
 
     expected_sizes = [1, 2, 4, 32, 20]
     for ctx, expected in zip(captured, expected_sizes):
-        assert ctx.size == expected, f"type_str={ctx.type_str}: expected size {expected}, got {ctx.size}"
+        assert (
+            ctx.size == expected
+        ), f"encoder={ctx.encoder.__class__.__name__}: expected size {expected}, got {ctx.size}"
 
 
 def test_encoding_context_size_packed_variable_bytes():
