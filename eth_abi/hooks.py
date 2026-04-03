@@ -48,8 +48,8 @@ def resolve_hooks(encoder: BaseEncoder, value: Any) -> Any:
     A hook is any callable placed where a value is expected.  Before
     encoding, the hook is called with an :class:`EncodingContext` object
     that reports the absolute byte offset at which the value's encoded data
-    will appear in the final output, the ABI type string for that position,
-    the encoded byte size, and whether packed encoding is in use.
+    will appear in the final output, the encoded byte size for that
+    position, and the encoder instance responsible for encoding it.
 
     Hooks may be placed at primitive leaf positions at any depth of nesting:
     directly in ``value``, inside tuple values, inside array values, or any
