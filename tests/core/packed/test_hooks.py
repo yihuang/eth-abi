@@ -75,7 +75,7 @@ def test_packed_hook_multiple_hooks():
         ["uint8", "uint8", "uint8"],
         [make_hook(1), make_hook(2), make_hook(3)],
     )
-    contexts == [
+    assert contexts == [
         EncodingContext(offset=0, size=1, encoder=registry_packed.get_encoder("uint8")),
         EncodingContext(offset=1, size=1, encoder=registry_packed.get_encoder("uint8")),
         EncodingContext(offset=2, size=1, encoder=registry_packed.get_encoder("uint8")),
