@@ -83,10 +83,8 @@ class ABIEncoder(BaseABICoder):
         validate_list_like_param(types, "types")
         validate_list_like_param(args, "args")
 
-        return list(
-            _resolve_hooks_impl(
-                self._registry, list(types), list(args)
-            )
+        return _resolve_hooks_impl(
+            self._registry, list(types), list(args)
         )
 
     def encode(self, types: Iterable[TypeStr], args: Iterable[Any]) -> bytes:

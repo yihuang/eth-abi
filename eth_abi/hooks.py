@@ -22,10 +22,7 @@ from eth_abi.encoding import (
 
 class EncodingContext(NamedTuple):
     """
-    Context information provided to callable hook values during ABI encoding.
-
-    When a callable is passed as a value to be encoded, it will be called with
-    an instance of this class and must return the actual value to encode.
+    Context information provided to callable hook values in resolve_hooks.
 
     :param offset: The byte offset in the encoded output where this value's
         data begins.  For static types, this is the position of the value in
@@ -33,7 +30,8 @@ class EncodingContext(NamedTuple):
         (length prefix included) in the tail section.
     :param type_str: The ABI type string for this value, e.g. ``"uint256"``
         or ``"bytes"``.
-    :param size: The encoded byte size of the value at this position. It's None for dynamic types.
+    :param size: The encoded byte size of the value at this position.
+        It's None for dynamic types.
     """
 
     offset: int
@@ -68,8 +66,8 @@ def resolve_hooks(registry, types, values):
         :func:`~eth_abi.abi.encode` or :func:`~eth_abi.packed.encode_packed`.
     """
     encoders = [registry.get_encoder(t) for t in types]
-    return _resolve_sequence(
-        list(values), list(encoders), list(types), base_offset=0
+    return _resolve_tuple(
+        values, encoders, types, base_offset=0
     )
 
 
@@ -111,6 +109,14 @@ def _resolve_value(value, encoder, type_str, base_offset):
     * Arrays are recursed into via :func:`_resolve_array`.
     * All other values are returned unchanged.
     """
+    if isinstance(encoder, TupleEncoder) and is_list_like(value):
+        abi_type = grammar.parse(type_str)
+        sub_types = [c.to_type_str() for c in abi_type.components]
+        return _resolve_tuple(value, encoder.encoders, sub_types, base_offset)
+    if isinstance(encoder, BaseArrayEncoder) and is_list_like(value):
+        abi_type = grammar.parse(type_str)
+        item_type_str = abi_type.item_type.to_type_str()
+        return _resolve_array(value, encoder, item_type_str, base_offset)
     if callable(value):
         # For fixed-size encoders (static primitives) data_byte_size is the
         # exact encoded byte width: 32 for standard-ABI types, 1/4/20/…  for
@@ -123,18 +129,10 @@ def _resolve_value(value, encoder, type_str, base_offset):
             size=size,
         )
         return value(ctx)
-    if isinstance(encoder, TupleEncoder) and is_list_like(value):
-        abi_type = grammar.parse(type_str)
-        sub_types = [c.to_type_str() for c in abi_type.components]
-        return _resolve_tuple(value, encoder, sub_types, base_offset)
-    if isinstance(encoder, BaseArrayEncoder) and is_list_like(value):
-        abi_type = grammar.parse(type_str)
-        item_type_str = abi_type.item_type.to_type_str()
-        return _resolve_array(value, encoder, item_type_str, base_offset)
     return value
 
 
-def _resolve_sequence(values, encoders, type_strs, base_offset):
+def _resolve_tuple(values, encoders, type_strs, base_offset):
     """
     Resolve hooks in a flat sequence of ``(value, encoder, type_str)`` triples.
 
@@ -150,7 +148,7 @@ def _resolve_sequence(values, encoders, type_strs, base_offset):
 
     current_head_pos = 0
     current_tail_size = 0
-    resolved = list(values)
+    resolved = list(values)  # shallow copy
 
     for i, (value, encoder, type_str) in enumerate(zip(values, encoders, type_strs)):
         is_dynamic = getattr(encoder, "is_dynamic", False)
@@ -174,13 +172,6 @@ def _resolve_sequence(values, encoders, type_strs, base_offset):
             current_head_pos += len(encoded)
 
     return resolved
-
-
-def _resolve_tuple(values, encoder, sub_types, base_offset):
-    """Recurse into a tuple/struct value."""
-    return _resolve_sequence(
-        list(values), list(encoder.encoders), sub_types, base_offset
-    )
 
 
 def _resolve_array(values, encoder, item_type_str, base_offset):
@@ -211,7 +202,7 @@ def _resolve_array(values, encoder, item_type_str, base_offset):
     else:
         elements_base = base_offset
 
-    resolved = list(values)
+    resolved = list(values)  # shallow copy
 
     if items_dynamic:
         # Head section: one 32-byte offset pointer per element.
