@@ -16,11 +16,9 @@ from eth_utils import (
 from .encoding import (
     BaseEncoder,
     BaseArrayEncoder,
-    BaseEncoder,
     DynamicArrayEncoder,
     TupleEncoder,
 )
-from eth_abi.registry import ABIRegistry
 
 
 class EncodingContext(NamedTuple):
