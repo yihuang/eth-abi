@@ -252,8 +252,6 @@ def test_packed_round_trip_hooks_at_subset_of_positions():
 
 def test_resolve_hooks_packed_basic():
     """resolve_hooks_packed() returns values with hooks replaced by their return values."""
-    from eth_abi.packed import resolve_hooks_packed
-
     captured = []
 
     def hook(ctx):
@@ -271,8 +269,6 @@ def test_resolve_hooks_packed_basic():
 
 def test_resolve_hooks_packed_address():
     """resolve_hooks_packed() tracks 20-byte address offsets correctly."""
-    from eth_abi.packed import resolve_hooks_packed
-
     captured = []
 
     def hook(ctx):
@@ -288,8 +284,6 @@ def test_resolve_hooks_packed_address():
 
 def test_resolve_hooks_packed_variable_bytes():
     """resolve_hooks_packed() tracks offsets after variable-length bytes."""
-    from eth_abi.packed import resolve_hooks_packed
-
     captured = []
 
     def hook(ctx):
@@ -305,8 +299,6 @@ def test_resolve_hooks_packed_variable_bytes():
 
 def test_resolve_hooks_packed_then_encode_matches_direct():
     """encode_packed(resolve_hooks_packed(types, args)) == encode_packed(types, args)."""
-    from eth_abi.packed import resolve_hooks_packed
-
     types = ["uint8", "uint16", "address", "bytes32"]
     args = [1, 500, "0x" + "cd" * 20, b"\xab" * 32]
     data_direct = encode_packed(types, args)
@@ -323,14 +315,12 @@ def test_resolve_hooks_packed_then_encode_matches_direct():
 
 
 # ---------------------------------------------------------------------------
-# Tests for EncodingContext.size and EncodingContext.is_packed (packed mode)
+# Tests for EncodingContext.size
 # ---------------------------------------------------------------------------
 
 
 def test_encoding_context_size_packed_fixed():
     """size reflects the natural packed byte width for fixed-size types."""
-    from eth_abi.packed import resolve_hooks_packed
-
     captured = []
 
     def make_hook(ret_val):
@@ -350,24 +340,8 @@ def test_encoding_context_size_packed_fixed():
         assert ctx.size == expected, f"type_str={ctx.type_str}: expected size {expected}, got {ctx.size}"
 
 
-def test_encoding_context_is_packed_true_for_packed():
-    """is_packed is True for packed encoding."""
-    from eth_abi.packed import resolve_hooks_packed
-
-    captured = []
-
-    def hook(ctx):
-        captured.append(ctx)
-        return 0
-
-    resolve_hooks_packed(["uint8"], [hook])
-    assert captured[0].is_packed is True
-
-
 def test_encoding_context_size_packed_variable_bytes():
     """size for packed bytes reflects the raw byte length of the placeholder."""
-    from eth_abi.packed import resolve_hooks_packed
-
     sizes_during = []
     ctx_refs = []
 
@@ -379,8 +353,8 @@ def test_encoding_context_size_packed_variable_bytes():
     resolve_hooks_packed(["bytes"], [hook])
     # bytes is dynamic in the packed sense (no data_byte_size); None during hook
     assert sizes_during[0] is None
-    # After resolve_hooks_packed() the size is the raw byte length = 7
-    assert ctx_refs[0].size == 7
+    # size is None for dynamic types, it's tricky to do runtime replacing for dynamic types.
+    assert ctx_refs[0].size is None
 
 
 def test_encoding_context_size_packed_round_trip():

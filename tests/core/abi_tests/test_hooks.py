@@ -192,8 +192,6 @@ def test_round_trip_hook_in_array_of_tuples():
 
 def test_resolve_hooks_public_api_basic():
     """resolve_hooks() returns values with hooks replaced by their return values."""
-    from eth_abi import resolve_hooks
-
     captured = []
 
     def hook(ctx):
@@ -210,8 +208,6 @@ def test_resolve_hooks_public_api_basic():
 
 def test_resolve_hooks_public_api_dynamic():
     """resolve_hooks() computes correct tail offsets for dynamic types."""
-    from eth_abi import resolve_hooks
-
     captured = []
 
     def hook(ctx):
@@ -227,8 +223,6 @@ def test_resolve_hooks_public_api_dynamic():
 
 def test_resolve_hooks_public_api_nested_array():
     """resolve_hooks() correctly resolves a hook inside an array."""
-    from eth_abi import resolve_hooks
-
     captured = []
 
     def hook(ctx):
@@ -244,8 +238,6 @@ def test_resolve_hooks_public_api_nested_array():
 
 def test_resolve_hooks_public_api_nested_tuple():
     """resolve_hooks() recurses into nested tuples."""
-    from eth_abi import resolve_hooks
-
     captured = []
 
     def hook(ctx):
@@ -264,8 +256,6 @@ def test_resolve_hooks_public_api_nested_tuple():
 
 def test_resolve_hooks_then_encode_matches_direct():
     """encode(resolve_hooks(types, args)) == encode(types, args) for all hook positions."""
-    from eth_abi import resolve_hooks
-
     types = ["uint256", "bytes", "address"]
     args = [123, b"hello", "0x" + "ab" * 20]
     data_direct = encode(types, args)
@@ -285,14 +275,12 @@ def test_resolve_hooks_then_encode_matches_direct():
 
 
 # ---------------------------------------------------------------------------
-# Tests for EncodingContext.size and EncodingContext.is_packed
+# Tests for EncodingContext.size
 # ---------------------------------------------------------------------------
 
 
 def test_encoding_context_size_static_abi():
     """size is always 32 for standard ABI static types."""
-    from eth_abi import resolve_hooks
-
     captured = []
 
     def make_hook(ret_val):
@@ -309,24 +297,8 @@ def test_encoding_context_size_static_abi():
         assert ctx.size == 32
 
 
-def test_encoding_context_is_packed_false_for_standard_abi():
-    """is_packed is False for standard ABI encoding."""
-    from eth_abi import resolve_hooks
-
-    captured = []
-
-    def hook(ctx):
-        captured.append(ctx)
-        return 0
-
-    resolve_hooks(["uint256"], [hook])
-    assert captured[0].is_packed is False
-
-
 def test_encoding_context_size_dynamic_abi_set_after_hook():
     """size is None during hook execution but set after resolve_hooks() returns."""
-    from eth_abi import resolve_hooks
-
     sizes_during = []
     ctx_refs = []
 
@@ -338,15 +310,12 @@ def test_encoding_context_size_dynamic_abi_set_after_hook():
     resolve_hooks(["bytes"], [hook])
     # During hook execution size was None
     assert sizes_during[0] is None
-    # After resolve_hooks() the ctx.size is updated with the encoded placeholder size:
-    # 32 (length prefix) + 32 (5 bytes right-padded to a 32-byte word) = 64
-    assert ctx_refs[0].size == 64
+    # size is None for dynamic types, it's tricky to do runtime replacing for dynamic types.
+    assert ctx_refs[0].size is None
 
 
 def test_encoding_context_size_dynamic_abi_round_trip():
     """ctx.size can be used for round-trip patching of a dynamic type."""
-    from eth_abi import resolve_hooks
-
     types = ["uint256", "bytes", "uint256"]
     real_bytes = b"hello world"
     args = [1, real_bytes, 3]
@@ -365,6 +334,6 @@ def test_encoding_context_size_dynamic_abi_round_trip():
     # Patch the placeholder region with the real encoded tail
     enc = registry.get_encoder("bytes")
     real_encoded = enc(real_bytes)
-    assert ctx.size == len(real_encoded)
-    patched = tmpl[: ctx.offset] + real_encoded + tmpl[ctx.offset + ctx.size :]
-    assert patched == data1
+
+    # size is None for dynamic types, it's tricky to do runtime replacing for dynamic types.
+    assert ctx.size is None

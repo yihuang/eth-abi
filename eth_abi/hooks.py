@@ -6,6 +6,8 @@ who need to discover the exact byte offsets of argument slots in
 ABI-encoded output without modifying the core encoder.
 """
 
+from typing import NamedTuple
+
 from eth_utils import (
     is_list_like,
 )
@@ -18,7 +20,7 @@ from eth_abi.encoding import (
 )
 
 
-class EncodingContext:
+class EncodingContext(NamedTuple):
     """
     Context information provided to callable hook values during ABI encoding.
 
@@ -31,33 +33,15 @@ class EncodingContext:
         (length prefix included) in the tail section.
     :param type_str: The ABI type string for this value, e.g. ``"uint256"``
         or ``"bytes"``.
-    :param size: The encoded byte size of the value at this position.  For
-        static types this is always available (e.g. 32 for standard-ABI
-        ``uint256``, 1 for packed ``uint8``, 20 for packed ``address``).  For
-        dynamic types (``bytes``, ``string``, dynamic arrays) it is computed
-        from the placeholder value returned by the hook and is ``None`` *while
-        the hook is executing*; it will be set on this context object before
-        :func:`resolve_hooks` returns, so callers that capture the context
-        object can access ``ctx.size`` after :func:`resolve_hooks` returns.
-    :param is_packed: ``True`` when the value is being resolved for packed
-        (non-padded) encoding via :func:`~eth_abi.packed.encode_packed``.
-        ``False`` for standard ABI encoding.
+    :param size: The encoded byte size of the value at this position. It's None for dynamic types.
     """
 
-    def __init__(
-        self,
-        offset: int,
-        type_str: str | None,
-        size: int | None,
-        is_packed: bool,
-    ) -> None:
-        self.offset = offset
-        self.type_str = type_str
-        self.size = size
-        self.is_packed = is_packed
+    offset: int
+    type_str: str
+    size: int | None
 
 
-def resolve_hooks(registry, types, values, *, is_packed=False):
+def resolve_hooks(registry, types, values):
     """
     Resolve callable hook values within ``values``, returning a new list
     with each hook replaced by its return value.
@@ -78,8 +62,6 @@ def resolve_hooks(registry, types, values, *, is_packed=False):
         ``['uint256', 'bytes[]', '(int,int)']``.
     :param values: A sequence of python values, possibly containing callable
         hooks.
-    :param is_packed: ``True`` when resolving for packed encoding (sets
-        :attr:`EncodingContext.is_packed` on every context object).
 
     :returns: A new list with all hooks replaced by their return values.
         The resolved list can be passed directly to
@@ -87,7 +69,7 @@ def resolve_hooks(registry, types, values, *, is_packed=False):
     """
     encoders = [registry.get_encoder(t) for t in types]
     return _resolve_sequence(
-        list(values), list(encoders), list(types), base_offset=0, is_packed=is_packed
+        list(values), list(encoders), list(types), base_offset=0
     )
 
 
@@ -119,7 +101,7 @@ def _get_head_size(encoder, type_str):
     return 32
 
 
-def _resolve_value(value, encoder, type_str, base_offset, is_packed):
+def _resolve_value(value, encoder, type_str, base_offset):
     """
     Resolve a single (value, encoder, type_str) triple at the given offset.
 
@@ -139,27 +121,20 @@ def _resolve_value(value, encoder, type_str, base_offset, is_packed):
             offset=base_offset,
             type_str=type_str,
             size=size,
-            is_packed=is_packed,
         )
-        resolved = value(ctx)
-        # For dynamic types size wasn't known when the hook ran; compute it
-        # from the placeholder the hook returned so callers who capture the ctx
-        # object can read ctx.size after resolve_hooks() returns.
-        if ctx.size is None:
-            ctx.size = len(encoder(resolved))
-        return resolved
+        return value(ctx)
     if isinstance(encoder, TupleEncoder) and is_list_like(value):
         abi_type = grammar.parse(type_str)
         sub_types = [c.to_type_str() for c in abi_type.components]
-        return _resolve_tuple(value, encoder, sub_types, base_offset, is_packed)
+        return _resolve_tuple(value, encoder, sub_types, base_offset)
     if isinstance(encoder, BaseArrayEncoder) and is_list_like(value):
         abi_type = grammar.parse(type_str)
         item_type_str = abi_type.item_type.to_type_str()
-        return _resolve_array(value, encoder, item_type_str, base_offset, is_packed)
+        return _resolve_array(value, encoder, item_type_str, base_offset)
     return value
 
 
-def _resolve_sequence(values, encoders, type_strs, base_offset, is_packed):
+def _resolve_sequence(values, encoders, type_strs, base_offset):
     """
     Resolve hooks in a flat sequence of ``(value, encoder, type_str)`` triples.
 
@@ -185,7 +160,7 @@ def _resolve_sequence(values, encoders, type_strs, base_offset, is_packed):
         else:
             item_base = base_offset + current_head_pos
 
-        resolved_value = _resolve_value(value, encoder, type_str, item_base, is_packed)
+        resolved_value = _resolve_value(value, encoder, type_str, item_base)
         resolved[i] = resolved_value
 
         # Advance position counters using the actual encoded byte length so
@@ -201,14 +176,14 @@ def _resolve_sequence(values, encoders, type_strs, base_offset, is_packed):
     return resolved
 
 
-def _resolve_tuple(values, encoder, sub_types, base_offset, is_packed):
+def _resolve_tuple(values, encoder, sub_types, base_offset):
     """Recurse into a tuple/struct value."""
     return _resolve_sequence(
-        list(values), list(encoder.encoders), sub_types, base_offset, is_packed
+        list(values), list(encoder.encoders), sub_types, base_offset
     )
 
 
-def _resolve_array(values, encoder, item_type_str, base_offset, is_packed):
+def _resolve_array(values, encoder, item_type_str, base_offset):
     """
     Recurse into an array value.
 
@@ -245,7 +220,7 @@ def _resolve_array(values, encoder, item_type_str, base_offset, is_packed):
         for i, item in enumerate(values):
             item_base = elements_base + head_total + current_tail_size
             resolved_item = _resolve_value(
-                item, item_enc, item_type_str, item_base, is_packed
+                item, item_enc, item_type_str, item_base
             )
             resolved[i] = resolved_item
             current_tail_size += len(item_enc(resolved_item))
@@ -255,7 +230,7 @@ def _resolve_array(values, encoder, item_type_str, base_offset, is_packed):
         for i, item in enumerate(values):
             item_base = elements_base + current_pos
             resolved_item = _resolve_value(
-                item, item_enc, item_type_str, item_base, is_packed
+                item, item_enc, item_type_str, item_base
             )
             resolved[i] = resolved_item
             current_pos += len(item_enc(resolved_item))

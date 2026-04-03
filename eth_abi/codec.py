@@ -51,9 +51,8 @@ class ABIEncoder(BaseABICoder):
     Wraps a registry to provide last-mile encoding functionality.
     """
 
-    def __init__(self, registry: ABIRegistry, *, is_packed: bool = False) -> None:
+    def __init__(self, registry: ABIRegistry) -> None:
         super().__init__(registry)
-        self._is_packed = is_packed
 
     def resolve_hooks(
         self, types: Iterable[TypeStr], args: Iterable[Any]
@@ -86,7 +85,7 @@ class ABIEncoder(BaseABICoder):
 
         return list(
             _resolve_hooks_impl(
-                self._registry, list(types), list(args), is_packed=self._is_packed
+                self._registry, list(types), list(args)
             )
         )
 
