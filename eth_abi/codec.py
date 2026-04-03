@@ -51,9 +51,6 @@ class ABIEncoder(BaseABICoder):
     Wraps a registry to provide last-mile encoding functionality.
     """
 
-    def __init__(self, registry: ABIRegistry) -> None:
-        super().__init__(registry)
-
     def encode(self, types: Iterable[TypeStr], args: Iterable[Any]) -> bytes:
         """
         Encodes the python values in ``args`` as a sequence of binary values of
