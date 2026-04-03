@@ -85,8 +85,10 @@ def _get_head_size(encoder: BaseEncoder) -> int:
     """
     if getattr(encoder, "is_dynamic", False):
         return 32
+
     if isinstance(encoder, TupleEncoder):
         return sum(_get_head_size(e) for e in encoder.encoders)
+
     if (
         hasattr(encoder, "array_size")
         and hasattr(encoder, "item_encoder")
@@ -94,6 +96,7 @@ def _get_head_size(encoder: BaseEncoder) -> int:
     ):
         assert isinstance(encoder.array_size, int)
         return encoder.array_size * _get_head_size(encoder.item_encoder)
+
     # All other primitive static types (uint, int, address, bool, bytesN, …)
     return 32
 
